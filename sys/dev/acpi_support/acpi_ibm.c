@@ -1,6 +1,7 @@
 /*-
  * Copyright (c) 2004 Takanori Watanabe
  * Copyright (c) 2005 Markus Brueffer <markus@FreeBSD.org>
+ * Copyright (c) 2018 Michael Gmelin <grembo@FreeBSD.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -74,7 +75,10 @@ ACPI_MODULE_NAME("IBM")
 #define ACPI_IBM_METHOD_FANSTATUS	12
 #define ACPI_IBM_METHOD_THERMAL		13
 #define ACPI_IBM_METHOD_HANDLEREVENTS	14
-#define ACPI_IBM_METHOD_MIC_LED		15
+#define ACPI_IBM_METHOD_KBD_BACKLIGHT	15
+#define ACPI_IBM_METHOD_KBD_BL_LEDON	16
+#define ACPI_IBM_METHOD_KBD_BL_LEDOFF	17
+#define ACPI_IBM_METHOD_MICMUTE_LED	18
 
 /* Hotkeys/Buttons */
 #define IBM_RTC_HOTKEY1			0x64
@@ -130,6 +134,17 @@ ACPI_MODULE_NAME("IBM")
 #define IBM_NAME_EVENTS_MASK_SET	"MHKM"
 #define IBM_NAME_EVENTS_GET		"MHKP"
 #define IBM_NAME_EVENTS_AVAILMASK	"MHKA"
+#define IBM_NAME_EVENTS_VERSION		"MHKV"
+
+#define IBM_NAME_KBD_BACKLIGHT_GET	"MLCG"
+#define	  IBM_NAME_MASK_KBD_BL_SUPPORT	(1 << 9)
+#define	  IBM_NAME_MASK_KBD_BL_LEVEL	0x3
+#define IBM_NAME_KBD_BACKLIGHT_SET	"MLCS"
+
+#define IBM_NAME_MICMUTE_LED_SET	"MMTS"
+#define   IBM_NAME_MICMUTE_LED_OFF	0x0
+#define   IBM_NAME_MICMUTE_LED_ON	0x2
+#define   IBM_NAME_MICMUTE_LED_BLINK	0x3
 
 /* Event Code */
 #define IBM_EVENT_LCD_BACKLIGHT		0x03
@@ -171,14 +186,30 @@ struct acpi_ibm_softc {
 	int		light_get_supported;
 	int		light_set_supported;
 
-	/* led(4) interface */
+	/* led(4) interface for thinklight */
 	struct cdev	*led_dev;
 	int		led_busy;
 	int		led_state;
 
-	/* Mic led handle */
-	ACPI_HANDLE	mic_led_handle;
-	int		mic_led_state;
+	/* Keyboard backlight support */
+	int		kbd_backlight_supported;
+	int		kbd_backlight_val;
+
+	/* led(4) interface for keyboard backlight */
+	struct cdev	*kbd_backlight_led_dev;
+	int		kbd_backlight_led_busy;
+	int		kbd_backlight_led_state;
+	int		kbd_backlight_ledon;
+	int		kbd_backlight_ledoff;
+
+	/* micmute led */
+	int		micmute_led_supported;
+	int		micmute_led_val;
+
+	/* led(4) interface for micmute led */
+	struct cdev	*micmute_led_dev;
+	int		micmute_led_busy;
+	int		micmute_led_state;
 
 	int		wlan_bt_flags;
 	int		thermal_updt_supported;
@@ -264,10 +295,26 @@ static struct {
 		.description	= "Fan enable",
 	},
 	{
-		.name		= "mic_led",
-		.method		= ACPI_IBM_METHOD_MIC_LED,
-		.description	= "Mic led",
+		.name		= "kbd_backlight",
+		.method		= ACPI_IBM_METHOD_KBD_BACKLIGHT,
+		.description	= "Keyboard backlight level",
 	},
+	{
+		.name		= "kbd_backlight_ledon",
+		.method		= ACPI_IBM_METHOD_KBD_BL_LEDON,
+		.description	= "Keyboard backlight LED on level",
+	},
+	{
+		.name		= "kbd_backlight_ledoff",
+		.method		= ACPI_IBM_METHOD_KBD_BL_LEDOFF,
+		.description	= "Keyboard backlight LED off level",
+	},
+	{
+		.name		= "micmute_led",
+		.method		= ACPI_IBM_METHOD_MICMUTE_LED,
+		.description	= "Control micmute LED",
+	},
+
 	{ NULL, 0, NULL, 0 }
 };
 
@@ -312,6 +359,13 @@ static int	acpi_ibm_resume(device_t dev);
 static void	ibm_led(void *softc, int onoff);
 static void	ibm_led_task(struct acpi_ibm_softc *sc, int pending __unused);
 
+static void	ibm_kbd_backlight_led(void *softc, int onoff);
+static void	ibm_kbd_backlight_led_task(struct acpi_ibm_softc *sc,
+		    int pending __unused);
+
+static void	ibm_micmute_led(void *softc, int onoff);
+static void	ibm_micmute_led_task(struct acpi_ibm_softc *sc, int pending __unused);
+
 static int	acpi_ibm_sysctl(SYSCTL_HANDLER_ARGS);
 static int	acpi_ibm_sysctl_init(struct acpi_ibm_softc *sc, int method);
 static int	acpi_ibm_sysctl_get(struct acpi_ibm_softc *sc, int method);
@@ -327,6 +381,8 @@ static int	acpi_ibm_bluetooth_set(struct acpi_ibm_softc *sc, int arg);
 static int	acpi_ibm_thinklight_set(struct acpi_ibm_softc *sc, int arg);
 static int	acpi_ibm_volume_set(struct acpi_ibm_softc *sc, int arg);
 static int	acpi_ibm_mute_set(struct acpi_ibm_softc *sc, int arg);
+static int	acpi_ibm_kbd_backlight_set(struct acpi_ibm_softc *sc, int arg);
+static int	acpi_ibm_micmute_led_set(struct acpi_ibm_softc *sc, int arg);
 
 static device_method_t acpi_ibm_methods[] = {
 	/* Device interface */
@@ -379,33 +435,64 @@ ibm_led_task(struct acpi_ibm_softc *sc, int pending __unused)
 	sc->led_busy = 0;
 }
 
-static int
-acpi_ibm_mic_led_set (struct acpi_ibm_softc *sc, int arg)
+static void
+ibm_kbd_backlight_led(void *softc, int onoff)
 {
-	ACPI_OBJECT_LIST input;
-	ACPI_OBJECT params[1];
-	ACPI_STATUS status;
+	struct acpi_ibm_softc* sc = (struct acpi_ibm_softc*) softc;
 
-	if (arg < 0 || arg > 1)
-		return (EINVAL);
+	ACPI_FUNCTION_TRACE((char *)(uintptr_t)__func__);
 
-	if (sc->mic_led_handle) {
-		params[0].Type = ACPI_TYPE_INTEGER;
-		params[0].Integer.Value = 0;
-		/* mic led: 0 off, 2 on */
-		if (arg == 1)
-			params[0].Integer.Value = 2;
+	if (sc->kbd_backlight_led_busy)
+		return;
 
-		input.Pointer = params;
-		input.Count = 1;
+	sc->kbd_backlight_led_busy = 1;
+	sc->kbd_backlight_led_state = onoff;
 
-		status = AcpiEvaluateObject (sc->handle, "MMTS", &input, NULL);
-		if (ACPI_SUCCESS(status))
-			sc->mic_led_state = arg;
-		return(status);
-	}
+	AcpiOsExecute(OSL_NOTIFY_HANDLER, (void *)ibm_kbd_backlight_led_task,
+	    sc);
+}
 
-	return (0);
+static void
+ibm_kbd_backlight_led_task(struct acpi_ibm_softc *sc, int pending __unused)
+{
+	ACPI_FUNCTION_TRACE((char *)(uintptr_t)__func__);
+
+	ACPI_SERIAL_BEGIN(ibm);
+	acpi_ibm_sysctl_set(sc, ACPI_IBM_METHOD_KBD_BACKLIGHT,
+	    sc->kbd_backlight_led_state ?
+	        sc->kbd_backlight_ledon : sc->kbd_backlight_ledoff);
+	ACPI_SERIAL_END(ibm);
+
+	sc->kbd_backlight_led_busy = 0;
+}
+
+static void
+ibm_micmute_led(void *softc, int onoff)
+{
+	struct acpi_ibm_softc* sc = (struct acpi_ibm_softc*) softc;
+
+	ACPI_FUNCTION_TRACE((char *)(uintptr_t)__func__);
+
+	if (sc->micmute_led_busy)
+		return;
+
+	sc->micmute_led_busy = 1;
+	sc->micmute_led_state = onoff;
+
+	AcpiOsExecute(OSL_NOTIFY_HANDLER, (void *)ibm_micmute_led_task, sc);
+}
+
+static void
+ibm_micmute_led_task(struct acpi_ibm_softc *sc, int pending __unused)
+{
+	ACPI_FUNCTION_TRACE((char *)(uintptr_t)__func__);
+
+	ACPI_SERIAL_BEGIN(ibm);
+	acpi_ibm_sysctl_set(sc, ACPI_IBM_METHOD_MICMUTE_LED,
+	    sc->micmute_led_state);
+	ACPI_SERIAL_END(ibm);
+
+	sc->micmute_led_busy = 0;
 }
 
 static int
@@ -503,9 +590,9 @@ acpi_ibm_attach(device_t dev)
 			sc->events_availmask = 0xffffffff;
 
 		SYSCTL_ADD_UINT(sc->sysctl_ctx,
-				SYSCTL_CHILDREN(sc->sysctl_tree), OID_AUTO,
-				"availmask", CTLFLAG_RD,
-				&sc->events_availmask, 0, "Mask of supported events");
+		    SYSCTL_CHILDREN(sc->sysctl_tree), OID_AUTO,
+		    "availmask", CTLFLAG_RD,
+		    &sc->events_availmask, 0, "Mask of supported events");
 	}
 
 	/* Hook up proc nodes */
@@ -555,6 +642,16 @@ acpi_ibm_attach(device_t dev)
 		sc->led_dev = led_create_state(ibm_led, sc, "thinklight",
 		    (sc->light_val ? 1 : 0));
 
+	/* Hook up keyboard backlight to led(4) */
+	if (sc->kbd_backlight_supported)
+		sc->kbd_backlight_led_dev = led_create_state(
+		    ibm_kbd_backlight_led, sc, "kbd_backlight",
+		    (sc->kbd_backlight_val ? 1 : 0));
+
+	if (sc->micmute_led_supported)
+		sc->micmute_led_dev = led_create_state(ibm_micmute_led, sc,
+		    "micmute", 0);
+
 	/* Enable per-model events. */
 	maker = kern_getenv("smbios.system.maker");
 	product = kern_getenv("smbios.system.product");
@@ -602,6 +699,12 @@ acpi_ibm_detach(device_t dev)
 	if (sc->led_dev != NULL)
 		led_destroy(sc->led_dev);
 
+	if (sc->kbd_backlight_led_dev != NULL)
+		led_destroy(sc->kbd_backlight_led_dev);
+
+	if (sc->micmute_led_dev != NULL)
+		led_destroy(sc->micmute_led_dev);
+
 	return (0);
 }
 
@@ -626,7 +729,7 @@ acpi_ibm_resume(device_t dev)
 	ACPI_SERIAL_END(ibm);
 
 	/* The mic led does not turn back on when sysctl_set is called in the above loop */
-	acpi_ibm_mic_led_set(sc, sc->mic_led_state);
+	acpi_ibm_micmute_led_set(sc, sc->mic_led_state);
 
 	return (0);
 }
@@ -815,11 +918,25 @@ acpi_ibm_sysctl_get(struct acpi_ibm_softc *sc, int method)
 		else
 			val = -1;
 		break;
-	case ACPI_IBM_METHOD_MIC_LED:
-		if (sc->mic_led_handle)
-			return sc->mic_led_state;
+
+	case ACPI_IBM_METHOD_KBD_BACKLIGHT:
+		if (sc->kbd_backlight_supported)
+			acpi_GetInteger(sc->handle, IBM_NAME_KBD_BACKLIGHT_GET, &val);
 		else
-			val = -1;
+			val = sc->kbd_backlight_val;
+		val &= IBM_NAME_MASK_KBD_BL_LEVEL;
+		break;
+
+	case ACPI_IBM_METHOD_KBD_BL_LEDON:
+		val = sc->kbd_backlight_ledon;
+		break;
+
+	case ACPI_IBM_METHOD_KBD_BL_LEDOFF:
+		val = sc->kbd_backlight_ledoff;
+		break;
+
+	case ACPI_IBM_METHOD_MICMUTE_LED:
+		val = sc->micmute_led_val;
 		break;
 	}
 
@@ -865,10 +982,6 @@ acpi_ibm_sysctl_set(struct acpi_ibm_softc *sc, int method, int arg)
 		return acpi_ibm_mute_set(sc, arg);
 		break;
 
-	case ACPI_IBM_METHOD_MIC_LED:
-		return acpi_ibm_mic_led_set (sc, arg);
-		break;
-
 	case ACPI_IBM_METHOD_THINKLIGHT:
 		return acpi_ibm_thinklight_set(sc, arg);
 		break;
@@ -902,6 +1015,28 @@ acpi_ibm_sysctl_set(struct acpi_ibm_softc *sc, int method, int arg)
 				(arg == 1) ? (val_ec | IBM_EC_MASK_FANSTATUS) : (val_ec & (~IBM_EC_MASK_FANSTATUS)), 1);
 		}
 		break;
+
+	case ACPI_IBM_METHOD_KBD_BACKLIGHT:
+		return acpi_ibm_kbd_backlight_set(sc, arg);
+		break;
+
+	case ACPI_IBM_METHOD_KBD_BL_LEDON:
+		if (arg < 0 || arg > 2)
+			return (EINVAL);
+
+		sc->kbd_backlight_ledon = arg;
+		break;
+
+	case ACPI_IBM_METHOD_KBD_BL_LEDOFF:
+		if (arg < 0 || arg > 2)
+			return (EINVAL);
+
+		sc->kbd_backlight_ledoff = arg;
+		break;
+
+	case ACPI_IBM_METHOD_MICMUTE_LED:
+		return acpi_ibm_micmute_led_set(sc, arg);
+		break;
 	}
 
 	return (0);
@@ -927,17 +1062,6 @@ acpi_ibm_sysctl_init(struct acpi_ibm_softc *sc, int method)
 	case ACPI_IBM_METHOD_MUTE:
 		/* EC is required here, which was already checked before */
 		return (TRUE);
-
-	case ACPI_IBM_METHOD_MIC_LED:
-		if (ACPI_SUCCESS(AcpiGetHandle(sc->handle, "MMTS", &sc->mic_led_handle)))
-		{
-			/* Turn off mic led by default */
-			acpi_ibm_mic_led_set (sc, 0);
-			return(TRUE);
-		}
-		else
-			sc->mic_led_handle = NULL;
-		return (FALSE);
 
 	case ACPI_IBM_METHOD_THINKLIGHT:
 		sc->cmos_handle = NULL;
@@ -1008,6 +1132,37 @@ acpi_ibm_sysctl_init(struct acpi_ibm_softc *sc, int method)
 
 	case ACPI_IBM_METHOD_HANDLEREVENTS:
 		return (TRUE);
+
+	case ACPI_IBM_METHOD_KBD_BACKLIGHT:
+		if (ACPI_FAILURE(acpi_GetInteger(sc->handle, IBM_NAME_KBD_BACKLIGHT_GET,
+		    &sc->kbd_backlight_val)))
+			sc->kbd_backlight_val = 0;
+		sc->kbd_backlight_supported = sc->kbd_backlight_val &
+		    IBM_NAME_MASK_KBD_BL_SUPPORT;
+		sc->kbd_backlight_val &= IBM_NAME_MASK_KBD_BL_LEVEL;
+		if (sc->kbd_backlight_supported)
+			return (TRUE);
+		return (FALSE);
+
+	case ACPI_IBM_METHOD_KBD_BL_LEDON:
+		sc->kbd_backlight_ledon = 1;
+		if (sc->kbd_backlight_supported)
+			return (TRUE);
+		return (FALSE);
+
+	case ACPI_IBM_METHOD_KBD_BL_LEDOFF:
+		sc->kbd_backlight_ledoff = 0;
+		if (sc->kbd_backlight_supported)
+			return (TRUE);
+		return (FALSE);
+
+	case ACPI_IBM_METHOD_MICMUTE_LED:
+		sc->micmute_led_supported = ACPI_SUCCESS(acpi_SetInteger(
+		    sc->handle, IBM_NAME_MICMUTE_LED_SET,
+		    IBM_NAME_MICMUTE_LED_OFF));
+		if (sc->micmute_led_supported)
+			return (TRUE);
+		return (FALSE);
 	}
 	return (FALSE);
 }
@@ -1307,6 +1462,61 @@ acpi_ibm_mute_set(struct acpi_ibm_softc *sc, int arg)
 	val_ec = (arg == 1) ? val_ec | IBM_EC_MASK_MUTE :
 			      val_ec & (~IBM_EC_MASK_MUTE);
 	return ACPI_EC_WRITE(sc->ec_dev, IBM_EC_VOLUME, val_ec, 1);
+}
+
+static int
+acpi_ibm_kbd_backlight_set(struct acpi_ibm_softc *sc, int arg)
+{
+	ACPI_STATUS		status;
+
+	ACPI_FUNCTION_TRACE((char *)(uintptr_t)__func__);
+	ACPI_SERIAL_ASSERT(ibm);
+
+	if (arg < 0 || arg > 2)
+		return (EINVAL);
+
+	if (sc->kbd_backlight_supported) {
+		status = acpi_SetInteger(sc->handle, IBM_NAME_KBD_BACKLIGHT_SET, arg);
+		if (ACPI_SUCCESS(status))
+			sc->kbd_backlight_val = arg;
+		return (status);
+	}
+
+	return (0);
+}
+
+static int
+acpi_ibm_micmute_led_set(struct acpi_ibm_softc *sc, int arg)
+{
+	int			led_arg;
+	ACPI_STATUS		status;
+
+	ACPI_FUNCTION_TRACE((char *)(uintptr_t)__func__);
+	ACPI_SERIAL_ASSERT(ibm);
+
+	if (arg < 0 || arg > 2)
+		return (EINVAL);
+
+	switch (arg) {
+	case 0:
+		led_arg = IBM_NAME_MICMUTE_LED_OFF;
+		break;
+	case 1:
+		led_arg = IBM_NAME_MICMUTE_LED_ON;
+		break;
+	case 2:
+		led_arg = IBM_NAME_MICMUTE_LED_BLINK;
+		break;
+	}
+
+	if (sc->micmute_led_supported) {
+		status = acpi_SetInteger(sc->handle, IBM_NAME_MICMUTE_LED_SET, led_arg);
+		if (ACPI_SUCCESS(status))
+			sc->micmute_led_val = arg;
+		return (status);
+	}
+
+	return (0);
 }
 
 static void
