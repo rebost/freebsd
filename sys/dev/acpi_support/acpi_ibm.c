@@ -411,14 +411,17 @@ acpi_ibm_mic_led_set (struct acpi_ibm_softc *sc, int arg)
 static int
 acpi_ibm_probe(device_t dev)
 {
+	int rv;
+
 	if (acpi_disabled("ibm") ||
-	    ACPI_ID_PROBE(device_get_parent(dev), dev, ibm_ids) == NULL ||
 	    device_get_unit(dev) != 0)
 		return (ENXIO);
+	rv = ACPI_ID_PROBE(device_get_parent(dev), dev, ibm_ids, NULL);
 
-	device_set_desc(dev, "IBM ThinkPad ACPI Extras");
-
-	return (0);
+	if (rv <= 0) 
+		device_set_desc(dev, "IBM ThinkPad ACPI Extras");
+	
+	return (rv);
 }
 
 static int
@@ -461,23 +464,16 @@ acpi_ibm_attach(device_t dev)
 	sc->events_mask_supported = ACPI_SUCCESS(acpi_GetInteger(sc->handle,
 	    IBM_NAME_EVENTS_MASK_GET, &sc->events_initialmask));
 
-	if (ACPI_SUCCESS (acpi_GetInteger(sc->handle, "MHKV", &hkey)))
-	{
-		device_printf(dev, "Firmware version key 0x%X\n", hkey);
-	}
-	else
-	{
-		device_printf(dev, "Failed to get firmware version key\n");
-		return (EINVAL);
-	}
 	if (sc->events_mask_supported) {
 		SYSCTL_ADD_UINT(sc->sysctl_ctx,
 		    SYSCTL_CHILDREN(sc->sysctl_tree), OID_AUTO,
 		    "initialmask", CTLFLAG_RD,
 		    &sc->events_initialmask, 0, "Initial eventmask");
 
-		switch(hkey >> 8)
-		{
+		if (ACPI_SUCCESS (acpi_GetInteger(sc->handle, "MHKV", &hkey))) {
+			device_printf(dev, "Firmware version is 0x%X\n", hkey);
+			switch(hkey >> 8)
+			{
 			case 1:
 				/* The availmask is the bitmask of supported events */
 				if (ACPI_FAILURE(acpi_GetInteger(sc->handle,
@@ -496,17 +492,20 @@ acpi_ibm_attach(device_t dev)
 				sc->events_availmask = 0xffffffff;
 
 				if (ACPI_SUCCESS(AcpiEvaluateObject (sc->handle,
-						IBM_NAME_EVENTS_AVAILMASK, &input, &result)))
+				    IBM_NAME_EVENTS_AVAILMASK, &input, &result)))
 					sc->events_availmask = out_obj.Integer.Value;
 				break;
-
 			default:
-			break;
-		}
+				device_printf(dev, "Unknown firmware version 0x%x\n", hkey);
+				break;
+			}
+		} else
+			sc->events_availmask = 0xffffffff;
+
 		SYSCTL_ADD_UINT(sc->sysctl_ctx,
-					    SYSCTL_CHILDREN(sc->sysctl_tree), OID_AUTO,
-					    "availmask", CTLFLAG_RD,
-					    &sc->events_availmask, 0, "Mask of supported events");
+				SYSCTL_CHILDREN(sc->sysctl_tree), OID_AUTO,
+				"availmask", CTLFLAG_RD,
+				&sc->events_availmask, 0, "Mask of supported events");
 	}
 
 	/* Hook up proc nodes */
