@@ -754,6 +754,7 @@ initializecpu(void)
 		elf32_nxstack = 1;
 	}
 #endif
+	hw_mds_recalculate();
 }
 
 void
