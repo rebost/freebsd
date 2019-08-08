@@ -498,18 +498,16 @@ ibm_micmute_led_task(struct acpi_ibm_softc *sc, int pending __unused)
 static int
 acpi_ibm_probe(device_t dev)
 {
-	int rv;
-
 	if (acpi_disabled("ibm") ||
+	    ACPI_ID_PROBE(device_get_parent(dev), dev, ibm_ids) == NULL ||
 	    device_get_unit(dev) != 0)
 		return (ENXIO);
-	rv = ACPI_ID_PROBE(device_get_parent(dev), dev, ibm_ids, NULL);
 
-	if (rv <= 0) 
-		device_set_desc(dev, "IBM ThinkPad ACPI Extras");
-	
-	return (rv);
+	device_set_desc(dev, "IBM ThinkPad ACPI Extras");
+
+	return (0);
 }
+
 
 static int
 acpi_ibm_attach(device_t dev)
@@ -729,7 +727,7 @@ acpi_ibm_resume(device_t dev)
 	ACPI_SERIAL_END(ibm);
 
 	/* The mic led does not turn back on when sysctl_set is called in the above loop */
-	acpi_ibm_micmute_led_set(sc, sc->mic_led_state);
+	acpi_ibm_micmute_led_set(sc, sc->micmute_led_state);
 
 	return (0);
 }
