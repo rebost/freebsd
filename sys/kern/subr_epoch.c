@@ -27,7 +27,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/kern/subr_epoch.c 337525 2018-08-09 05:18:27Z mmacy $");
 
 #include <sys/param.h>
 #include <sys/types.h>

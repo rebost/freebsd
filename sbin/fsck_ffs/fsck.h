@@ -59,7 +59,7 @@
  * SUCH DAMAGE.
  *
  *	@(#)fsck.h	8.4 (Berkeley) 5/9/95
- * $FreeBSD$
+ * $FreeBSD: releng/12.0/sbin/fsck_ffs/fsck.h 329052 2018-02-08 23:14:24Z mckusick $
  */
 
 #ifndef _FSCK_H_

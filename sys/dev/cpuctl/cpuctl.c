@@ -28,7 +28,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/dev/cpuctl/cpuctl.c 338687 2018-09-14 17:04:36Z markj $");
 
 #include <sys/param.h>
 #include <sys/systm.h>

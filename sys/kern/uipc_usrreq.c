@@ -58,7 +58,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/kern/uipc_usrreq.c 340980 2018-11-26 16:36:38Z markj $");
 
 #include "opt_ddb.h"
 

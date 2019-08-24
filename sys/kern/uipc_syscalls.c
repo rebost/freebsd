@@ -32,7 +32,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/kern/uipc_syscalls.c 337423 2018-08-07 16:36:48Z markj $");
 
 #include "opt_capsicum.h"
 #include "opt_inet.h"

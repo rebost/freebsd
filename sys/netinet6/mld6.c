@@ -66,7 +66,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/netinet6/mld6.c 338163 2018-08-21 23:03:02Z mmacy $");
 
 #include "opt_inet.h"
 #include "opt_inet6.h"

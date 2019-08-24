@@ -48,7 +48,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/netinet/cc/cc_cubic.c 336596 2018-07-22 05:37:58Z mmacy $");
 
 #include <sys/param.h>
 #include <sys/kernel.h>

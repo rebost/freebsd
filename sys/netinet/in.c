@@ -33,7 +33,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/netinet/in.c 337854 2018-08-15 15:44:30Z loos $");
 
 #include "opt_mpath.h"
 

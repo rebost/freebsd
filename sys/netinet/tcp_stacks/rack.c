@@ -26,7 +26,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/netinet/tcp_stacks/rack.c 338614 2018-09-12 10:27:58Z tuexen $");
 
 #include "opt_inet.h"
 #include "opt_inet6.h"

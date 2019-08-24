@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $FreeBSD$
+ * $FreeBSD: releng/12.0/sys/x86/include/x86_var.h 335632 2018-06-25 11:01:12Z kib $
  */
 
 #ifndef _X86_X86_VAR_H_

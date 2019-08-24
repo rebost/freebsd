@@ -30,7 +30,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/sys/amd64/amd64/initcpu.c 336876 2018-07-29 20:47:00Z kib $");
 
 #include "opt_cpu.h"
 

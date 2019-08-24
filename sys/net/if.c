@@ -29,7 +29,7 @@
  * SUCH DAMAGE.
  *
  *	@(#)if.c	8.5 (Berkeley) 1/9/95
- * $FreeBSD$
+ * $FreeBSD: releng/12.0/sys/net/if.c 339859 2018-10-29 13:17:41Z hselasky $
  */
 
 #include "opt_inet6.h"

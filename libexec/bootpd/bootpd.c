@@ -38,7 +38,7 @@ SOFTWARE.
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+__FBSDID("$FreeBSD: releng/12.0/libexec/bootpd/bootpd.c 229780 2012-01-07 16:09:54Z uqs $");
 
 #include <sys/types.h>
 #include <sys/param.h>

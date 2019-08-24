@@ -29,7 +29,7 @@
  * SUCH DAMAGE.
  *
  *	From: @(#)if.h	8.1 (Berkeley) 6/10/93
- * $FreeBSD$
+ * $FreeBSD: releng/12.0/sys/net/if_var.h 339012 2018-09-29 13:01:23Z tuexen $
  */
 
 #ifndef	_NET_IF_VAR_H_
